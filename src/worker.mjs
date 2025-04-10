@@ -191,7 +191,16 @@ async function handleCompletions (req, apiKey) {
         .pipeThrough(new TextEncoderStream());
     } else {
       body = await response.text();
-      body = processCompletionsResponse(JSON.parse(body), model, id);
+      try {
+        body = JSON.parse(body);
+        if (!body.candidates) {
+          throw new Error("Invalid completion object");
+        }
+      } catch (err) {
+        console.error("Error parsing response:", err);
+        return new Response(body, fixCors(response)); // output as is
+      }
+      body = processCompletionsResponse(body, model, id);
     }
   }
   return new Response(body, fixCors(response));
@@ -554,16 +563,13 @@ function toOpenAiStream (line, controller) {
   let data;
   try {
     data = JSON.parse(line);
+    if (!data.candidates) {
+      throw new Error("Invalid completion chunk object");
+    }
   } catch (err) {
-    console.error(line);
-    console.error(err);
-    const length = this.last.length || 1; // at least 1 error msg
-    const candidates = Array.from({ length }, (_, index) => ({
-      finishReason: "error",
-      content: { parts: [{ text: err }] },
-      index,
-    }));
-    data = { candidates };
+    console.error("Error parsing response:", err);
+    controller.enqueue(line); // output as is
+    return;
   }
   const obj = {
     id: this.id,
